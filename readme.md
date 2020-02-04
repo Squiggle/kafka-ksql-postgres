@@ -63,6 +63,14 @@ CREATE STREAM people_keyed
 AS SELECT * from people_stream
 PARTITION BY identity_id;
 
+# alternative
+CREATE STREAM people_keyed_avro WITH (
+  'KAFKA_TOPIC'='people_stream',
+  'VALUE_FORMAT'='AVRO'
+)
+AS SELECT * FROM people_stream
+PARTITION BY identity_id;
+
 CREATE STREAM people_sink
 WITH (
   KAFKA_TOPIC='people_keyed',
@@ -87,20 +95,21 @@ CREATE SINK CONNECTOR people_jdbc WITH (
   'batch.size'='1',
   'errors.tolerance'='all',
   'errors.log.enable'='true',
-	'errors.log.include.messages'='true',
+  'errors.log.include.messages'='true',
   'value.converter.schemas.enable'='true',
   'value.converter'='io.confluent.connect.avro.AvroConverter',
-  'value.converter.schema.registry.url'='http://schema-registry:8081'
+  'value.converter.schema.registry.url'='http://schema-registry:8081',
+  'table.name.format'='people'
 );
 ```
 
 _Note: for testing, it might be handy to stream to a file instead
 
 ```
-CREATE SINK CONNECTOR candidates_tofile WITH (
+CREATE SINK CONNECTOR people_file WITH (
   'connector.class'='FileStreamSink',
   'tasks.max'='1',
-  'file'='/tmp/test.sink.txt',
+  'file'='/tmp/test.txt',
   'topics'='people_sink'
 );
 ```
