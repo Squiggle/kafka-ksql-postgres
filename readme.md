@@ -40,10 +40,16 @@ WITH (
   VALUE_FORMAT='JSON'
 );
 
-CREATE STREAM people_keyed WITH (
+CREATE STREAM people_denormalised WITH (
   'VALUE_FORMAT'='AVRO'
-)
-AS SELECT * FROM people_stream EMIT CHANGES
+) AS
+  SELECT 
+    identity_id,
+    name,
+    family_name,
+    name + ' ' + family_name AS full_name
+  FROM people_stream
+EMIT CHANGES
 PARTITION BY identity_id;
 
 CREATE SINK CONNECTOR people WITH (
@@ -53,12 +59,42 @@ CREATE SINK CONNECTOR people WITH (
   'connection.password'='postgres',
   'tasks.max'='1',
   'insert.mode'='upsert',
-  'topics'='people_keyed',
+  'topics'='people_denormalised',
   'auto.create'='true',
   'pk.mode'='record_value',
   'pk.fields'='IDENTITY_ID',
   'batch.size'='1',
   'table.name.format'='people'
+);
+```
+
+TODO: projections not yet working
+```
+CREATE STREAM people_denormalised WITH (
+  'VALUE_FORMAT'='AVRO'
+) AS
+  SELECT 
+    identity_id,
+    name,
+    family_name,
+    name + ' ' + family_name AS full_name
+  FROM people_stream
+EMIT CHANGES
+PARTITION BY identity_id;
+
+CREATE SINK CONNECTOR people_extended WITH (
+  'connector.class'='io.confluent.connect.jdbc.JdbcSinkConnector',
+  'connection.url'='jdbc:postgresql://postgres:5432/denormalised',
+  'connection.user'='postgres',
+  'connection.password'='postgres',
+  'tasks.max'='1',
+  'insert.mode'='upsert',
+  'topics'='PEOPLE_DENORMALISED',
+  'auto.create'='true',
+  'pk.mode'='record_value',
+  'pk.fields'='IDENTITY_ID',
+  'batch.size'='1',
+  'table.name.format'='people_extended'
 );
 ```
 
