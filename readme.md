@@ -82,7 +82,7 @@ CREATE STREAM people_denormalised WITH (
 EMIT CHANGES
 PARTITION BY identity_id;
 
-CREATE SINK CONNECTOR people_extended WITH (
+CREATE SINK CONNECTOR people WITH (
   'connector.class'='io.confluent.connect.jdbc.JdbcSinkConnector',
   'connection.url'='jdbc:postgresql://postgres:5432/denormalised',
   'connection.user'='postgres',
@@ -94,7 +94,7 @@ CREATE SINK CONNECTOR people_extended WITH (
   'pk.mode'='record_value',
   'pk.fields'='IDENTITY_ID',
   'batch.size'='1',
-  'table.name.format'='people_extended'
+  'table.name.format'='people'
 );
 ```
 
@@ -109,13 +109,16 @@ cat data/people.data | kafkacat -b localhost:9092 -P -t people
 And check the data exists in the database:
 ```
 docker exec -it 065794b4cffb psql -U postgres -d denormalised
-
-> ....
 ```
 
+using:
+- `\dt` command to prove the table was created
+- `SELECT * FROM people;` to show the data
+
+To ensure updates are working, there is a 2nd data file:
+
 ```
-WIP - still can't get AVRO schema to work
-perhaps the KSQL server can't locate the schema repository?
+cat data/people.updated.data | kafkacat -b localhost:9092 -P -t people
 ```
 
 # Troubleshooting
