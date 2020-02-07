@@ -59,12 +59,7 @@ WITH (
   VALUE_FORMAT='JSON'
 );
 
-CREATE STREAM people_keyed
-AS SELECT * from people_stream
-PARTITION BY identity_id;
-
-# alternative
-CREATE STREAM people_keyed_avro WITH (
+CREATE STREAM people_keyed WITH (
   'KAFKA_TOPIC'='people_stream',
   'VALUE_FORMAT'='AVRO'
 )
@@ -93,6 +88,7 @@ CREATE SINK CONNECTOR people_jdbc WITH (
   'pk.fields'='record_key',
   'tasks.max'='1',
   'batch.size'='1',
+  'batch.max.rows'='1',
   'errors.tolerance'='all',
   'errors.log.enable'='true',
   'errors.log.include.messages'='true',
