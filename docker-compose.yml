@@ -1,9 +1,11 @@
 ---
-version: '3'
+version: '2.1'
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:5.4.0
     container_name: zookeeper
+    ports:
+      - 2181:2181
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -14,8 +16,10 @@ services:
     depends_on:
       - zookeeper
     ports:
+    # Exposes 9092 for external connections to the broker
+    # Use kafka:29092 for connections internal on the docker network
+    # See https://rmoff.net/2018/08/02/kafka-listeners-explained/ for details
       - 9092:9092
-      - 29092:29092
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -24,8 +28,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 100
-      KAFKA_ALLOW_PLAINTEXT_LISTENER: "yes"
+    
 
   schema-registry:
     image: confluentinc/cp-schema-registry:5.4.0
@@ -34,10 +37,16 @@ services:
     container_name: schema-registry
     depends_on:
       - kafka
+      - zookeeper
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: zookeeper:2181
       SCHEMA_REGISTRY_CUB_KAFKA_TIMEOUT: 300
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
       
   postgres:
     # *-----------------------------*
@@ -57,10 +66,14 @@ services:
     image: confluentinc/cp-kafka-connect:5.4.0
     container_name: kafka-connect-01
     depends_on:
-      - zookeeper
-      - kafka
-      - schema-registry
-      - postgres
+      zookeeper:
+        condition: service_started
+      kafka:
+        condition: service_started
+      postgres:
+        condition: service_started
+      schema-registry:
+        condition: service_healthy
     ports:
       - 8083:8083
     environment:
@@ -77,16 +90,27 @@ services:
       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: '1'
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: '1'
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: '1'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
 
   ksqldb-server:
     image: confluentinc/ksqldb-server:0.6.0
     hostname: ksqldb-server
     container_name: ksqldb-server
     depends_on:
-      - kafka
-      - postgres
-      - kafka-connect-01
-      - schema-registry
+      kafka:
+        condition: service_started
+      postgres:
+        condition: service_started
+      kafka-connect-01:
+        condition: service_started
+      schema-registry:
+        condition: service_healthy
+    volumes:
+      - ./ksql:/etc/ksql/scripts
     ports:
       - "8088:8088"
     environment:
@@ -96,11 +120,26 @@ services:
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
       KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       KSQL_KSQL_CONNECT_URL: http://kafka-connect-01:8083
+      KSQL_KSQL_QUERIES_FILE: /etc/ksql/scripts/create_streams.sql
+      KSQL_KSQL_SINK_REPLICAS: 1
+      KSQL_KSQL_SINK_PARTITIONS: 1
 
-  ksqldb-cli:
-    image: confluentinc/ksqldb-cli:0.6.0
-    container_name: ksqldb-cli
+  kafka-connect-init:
+    image: byrnedo/alpine-curl
+    container_name: kafka-connect-init
     depends_on:
-      - ksqldb-server
-    entrypoint: /bin/sh
-    tty: true
+      kafka-connect-01:
+        condition: service_healthy
+    volumes:
+      - ./connect:/etc/kafka-connect/scripts
+    entrypoint: ["sh", "/etc/kafka-connect/scripts/init.sh"]
+
+  data-producer:
+    image: confluentinc/cp-kafkacat
+    container_name: data-producer
+    depends_on:
+      kafka-connect-01:
+        condition: service_healthy
+    volumes:
+      - ./data:/etc/data
+    entrypoint: ["sh", "/etc/data/generate.sh"]

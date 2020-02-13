@@ -1,0 +1,17 @@
+{
+  "name": "denormalised_user",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+    "connection.url": "jdbc:postgresql://postgres:5432/denormalised",
+    "connection.user": "postgres",
+    "connection.password": "postgres",
+    "tasks.max": "1",
+    "insert.mode": "upsert",
+    "topics": "sink_denormalised_user",
+    "auto.create": "true",
+    "pk.mode": "record_value",
+    "pk.fields": "id",
+    "batch.size": "1",
+    "table.name.format": "user"
+  }
+}

@@ -8,119 +8,64 @@ docker-compose up -d
 
 Note that:
 - Our KSQL configuration ensures that schemas are applied automatically (we do not need to apply schemas manually)
-- Our docker configuration ensures that the `people` kafka topic is created as soon as it is referenced
+- Our docker configuration ensures that the `user` kafka topic is created as soon as it is referenced
 
-# KSQL
 
-Implementing the streams and connectors manually:
+The `docker-compose` file will bring up the following services:
 
-Open the KSQL CLI (the `ksqldb-cli` docker image)
+| Service name  | Purpose                                                                                                                    |
+|---------------|----------------------------------------------------------------------------------------------------------------------------|
+| zookeeper     | A dependency of Kafka. Coordinates the connection(s) to Kafka brokers.                                                     |
+| kafka         | Log database, composed of multiple topics                                                                                  |
+| schema-server | Central repository of schema for various services to agree on the data structures within topics                            |
+| ksqldb-server | Stream processor which consumes, translates and produces data between kafka topics using SQL-like syntax                   |
+| kafka-connect | Service for linking kafka topics to external systems. Used in this case to translate data to postgres and other databases. |
+| postgres      | database system                                                                                                            |
 
-```
-docker exec -it 5492af6f2bb5 ksql http://ksqldb-server:8088
-```
+As well as executing two dockerised scripts:
+- kafka-connect-init
+- data-producer
 
-_If you want to run SELECT queries in the KSQL CLI, it is recommended to run queries from the start of any log - `SET 'auto.offset.reset'='earliest';`_
+Kafka-connect-init is responsible for automatically creating the JDBC sink connector (amongst others) which connects the sink topic in kafka to the Postgres database.
 
-Now in the KSQL CLI we will:
-1. Use a `STREAM` to retrieve specific data from a topic
-1. Use a `STREAM` to apply a key to the data, convert the data to AVRO format, and to do a basic projection
-1. Use a `SINK CONNECTOR` to stream the data out to the postgres database
+The data-producer is responsible for creating events in the system; both create events and update events.
 
-```
-CREATE STREAM people_stream (
-  identity_id STRING,
-  name STRING,
-  family_name STRING
-)
-WITH (
-  KAFKA_TOPIC='people',
-  PARTITIONS=1,
-  REPLICAS=1,
-  VALUE_FORMAT='JSON'
-);
+# Querying the database
 
-CREATE STREAM people_denormalised WITH (
-  'VALUE_FORMAT'='AVRO'
-) AS
-  SELECT 
-    identity_id,
-    name,
-    family_name,
-    name + ' ' + family_name AS full_name
-  FROM people_stream
-EMIT CHANGES
-PARTITION BY identity_id;
-
-CREATE SINK CONNECTOR people WITH (
-  'connector.class'='io.confluent.connect.jdbc.JdbcSinkConnector',
-  'connection.url'='jdbc:postgresql://postgres:5432/denormalised',
-  'connection.user'='postgres',
-  'connection.password'='postgres',
-  'tasks.max'='1',
-  'insert.mode'='upsert',
-  'topics'='people_denormalised',
-  'auto.create'='true',
-  'pk.mode'='record_value',
-  'pk.fields'='IDENTITY_ID',
-  'batch.size'='1',
-  'table.name.format'='people'
-);
-```
-
-TODO: projections not yet working
-```
-CREATE STREAM people_denormalised WITH (
-  'VALUE_FORMAT'='AVRO'
-) AS
-  SELECT 
-    identity_id,
-    name,
-    family_name,
-    name + ' ' + family_name AS full_name
-  FROM people_stream
-EMIT CHANGES
-PARTITION BY identity_id;
-
-CREATE SINK CONNECTOR people WITH (
-  'connector.class'='io.confluent.connect.jdbc.JdbcSinkConnector',
-  'connection.url'='jdbc:postgresql://postgres:5432/denormalised',
-  'connection.user'='postgres',
-  'connection.password'='postgres',
-  'tasks.max'='1',
-  'insert.mode'='upsert',
-  'topics'='PEOPLE_DENORMALISED',
-  'auto.create'='true',
-  'pk.mode'='record_value',
-  'pk.fields'='IDENTITY_ID',
-  'batch.size'='1',
-  'table.name.format'='people'
-);
-```
-
-# Data
-
-Using the CLI tool `kafkacat` (you can install it using `brew install kafkacat` on osx):
+Connect to the database directly via the container:
 
 ```
-cat data/people.data | kafkacat -b localhost:9092 -P -t people
-```
-
-And check the data exists in the database:
-```
-docker exec -it 065794b4cffb psql -U postgres -d denormalised
+docker-compose exec postgres psql -U postgres -d denormalised
 ```
 
 using:
 - `\dt` command to prove the table was created
-- `SELECT * FROM people;` to show the data
+- `SELECT * FROM user;` to show the data
 
-To ensure updates are working, there is a 2nd data file:
+# Development & Testing
+
+Using the CLI tool `kafkacat` (you can install it using `brew install kafkacat` on osx):
+
+## Show all topics
 
 ```
-cat data/people.updated.data | kafkacat -b localhost:9092 -P -t people
+kafkacat -b localhost:9092 -L
+```
+
+## Query the topics
+
+```
+kafkacat -b localhost:9092 -t event_user -C
+```
+
+## Creating more events
+
+Using producer mode `-P` to feed the contents of a data file to the `event_user` topic:
+
+```
+cat data/user.data | kafkacat -b localhost:9092 -P -t event_user
 ```
 
 # Troubleshooting
 
-__KSQL Server logs__ can be accessed via `docker logs <container_id>` (use `-f` flag to live tail the log if you need to).
+__KSQL Server logs__ can be accessed via `docker-compose logs <container name>` (use `-f` flag to live tail the log if you need to).
