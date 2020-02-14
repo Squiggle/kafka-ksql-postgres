@@ -12,6 +12,6 @@
     "pk.mode": "record_value",
     "pk.fields": "id",
     "batch.size": "1",
-    "table.name.format": "user"
+    "table.name.format": "users"
   }
 }
